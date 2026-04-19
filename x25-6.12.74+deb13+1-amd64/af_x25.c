@@ -930,6 +930,7 @@ static int x25_getname(struct socket *sock, struct sockaddr *uaddr,
 	struct x25_sock *x25 = x25_sk(sk);
 	int rc = 0;
 
+	lock_sock(sk);
 	if (peer) {
 		if (sk->sk_state != TCP_ESTABLISHED) {
 			rc = -ENOTCONN;
@@ -943,6 +944,7 @@ static int x25_getname(struct socket *sock, struct sockaddr *uaddr,
 	rc = sizeof(*sx25);
 
 out:
+	release_sock(sk);
 	return rc;
 }
 
