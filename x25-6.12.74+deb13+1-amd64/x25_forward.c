@@ -44,29 +44,29 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 	/* Remote end sending a call request on an already
 	 * established LCI? It shouldn't happen, just in case..
 	 */
-	read_lock_bh(&x25_forward_list_lock);
+	new_frwd = kmalloc(sizeof(struct x25_forward), GFP_ATOMIC);
+	if (!new_frwd) {
+		rc = -ENOMEM;
+		goto out_put_nb;
+	}
+	new_frwd->lci  = lci;
+	new_frwd->dev1 = rt->dev;
+	new_frwd->dev2 = from->dev;
+
+	write_lock_bh(&x25_forward_list_lock);
 	list_for_each_entry(x25_frwd, &x25_forward_list, node) {
 		if (x25_frwd->lci == lci) {
 			pr_warn("call request for lci which is already registered!, transmitting but not registering new pair\n");
 			same_lci = 1;
+			break;
 		}
 	}
-	read_unlock_bh(&x25_forward_list_lock);
-
-	/* Save the forwarding details for future traffic */
-	if (!same_lci){
-		if ((new_frwd = kmalloc(sizeof(struct x25_forward),
-						GFP_ATOMIC)) == NULL){
-			rc = -ENOMEM;
-			goto out_put_nb;
-		}
-		new_frwd->lci = lci;
-		new_frwd->dev1 = rt->dev;
-		new_frwd->dev2 = from->dev;
-		write_lock_bh(&x25_forward_list_lock);
+	if (!same_lci)
 		list_add(&new_frwd->node, &x25_forward_list);
-		write_unlock_bh(&x25_forward_list_lock);
-	}
+	write_unlock_bh(&x25_forward_list_lock);
+
+	if (same_lci)
+		kfree(new_frwd);
 
 	/* Forward the call request */
 	if ( (skbn = skb_clone(skb, GFP_ATOMIC)) == NULL){
