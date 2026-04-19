@@ -15,6 +15,8 @@ make
 
 Produces `x25.ko`. The module compiles against the running kernel's headers via the standard `$(MAKE) -C /lib/modules/$(shell uname -r)/build` mechanism.
 
+The Makefile uses `-include $(src)/include/net/x25.h` to force-include a local copy of `x25.h` that overrides the system kernel header. This is necessary because the module uses `spinlock_t` for its four global list locks, while the installed kernel headers declare them as `rwlock_t`. The local header at `include/net/x25.h` must be kept in sync with `net/x25.h` from the kernel headers, with only the four lock extern declarations changed to `spinlock_t`.
+
 **DKMS workflow:**
 ```bash
 dkms add -m x25 -v 6.12.27-amd64

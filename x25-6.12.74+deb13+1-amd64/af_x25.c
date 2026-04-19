@@ -6,7 +6,7 @@
  *	randomly fail to work with new releases, misbehave and/or generally
  *	screw up. It might even work.
  *
- *	This code REQUIRES 2.1.15 or higher
+ *	This code REQUIRES 4.0 or higher (uses RCU-based list locking)
  *
  *	History
  *	X.25 001	Jonathan Naylor	Started coding.
@@ -65,7 +65,7 @@ int sysctl_x25_ack_holdback_timeout    = X25_DEFAULT_T2;
 int sysctl_x25_forward                 = 0;
 
 HLIST_HEAD(x25_list);
-DEFINE_RWLOCK(x25_list_lock);
+DEFINE_SPINLOCK(x25_list_lock);
 
 static const struct proto_ops x25_proto_ops;
 
@@ -194,9 +194,9 @@ int x25_addr_aton(unsigned char *p, struct x25_address *called_addr,
  */
 static void x25_remove_socket(struct sock *sk)
 {
-	write_lock_bh(&x25_list_lock);
-	sk_del_node_init(sk);
-	write_unlock_bh(&x25_list_lock);
+	spin_lock_bh(&x25_list_lock);
+	sk_del_node_init_rcu(sk);
+	spin_unlock_bh(&x25_list_lock);
 }
 
 /*
@@ -249,9 +249,9 @@ static int x25_device_event(struct notifier_block *this, unsigned long event,
  */
 static void x25_insert_socket(struct sock *sk)
 {
-	write_lock_bh(&x25_list_lock);
-	sk_add_node(sk, &x25_list);
-	write_unlock_bh(&x25_list_lock);
+	spin_lock_bh(&x25_list_lock);
+	sk_add_node_rcu(sk, &x25_list);
+	spin_unlock_bh(&x25_list_lock);
 }
 
 /*
@@ -267,10 +267,10 @@ static struct sock *x25_find_listener(struct x25_address *addr,
 	struct sock *s;
 	struct sock *next_best;
 
-	read_lock_bh(&x25_list_lock);
+	rcu_read_lock();
 	next_best = NULL;
 
-	sk_for_each(s, &x25_list)
+	sk_for_each_rcu(s, &x25_list)
 		if ((!strcmp(addr->x25_addr,
 			x25_sk(s)->source_addr.x25_addr) ||
 				!strcmp(x25_sk(s)->source_addr.x25_addr,
@@ -298,7 +298,7 @@ static struct sock *x25_find_listener(struct x25_address *addr,
 	}
 	s = NULL;
 found:
-	read_unlock_bh(&x25_list_lock);
+	rcu_read_unlock();
 	return s;
 }
 
@@ -309,8 +309,9 @@ static struct sock *__x25_find_socket(unsigned int lci, struct x25_neigh *nb)
 {
 	struct sock *s;
 
-	sk_for_each(s, &x25_list)
-		if (x25_sk(s)->lci == lci && x25_sk(s)->neighbour == nb) {
+	sk_for_each_rcu(s, &x25_list)
+		if (READ_ONCE(x25_sk(s)->lci) == lci &&
+		    READ_ONCE(x25_sk(s)->neighbour) == nb) {
 			sock_hold(s);
 			goto found;
 		}
@@ -323,9 +324,9 @@ struct sock *x25_find_socket(unsigned int lci, struct x25_neigh *nb)
 {
 	struct sock *s;
 
-	read_lock_bh(&x25_list_lock);
+	rcu_read_lock();
 	s = __x25_find_socket(lci, nb);
-	read_unlock_bh(&x25_list_lock);
+	rcu_read_unlock();
 	return s;
 }
 
@@ -337,25 +338,25 @@ static unsigned int x25_new_lci(struct sock *owner, struct x25_neigh *nb)
 	unsigned int lci = 1;
 	struct sock *s;
 
-	write_lock_bh(&x25_list_lock);
+	spin_lock_bh(&x25_list_lock);
 	while (lci < 4096) {
 		bool in_use = false;
 
 		sk_for_each(s, &x25_list) {
 			if (s != owner &&
-			    x25_sk(s)->lci == lci &&
+			    READ_ONCE(x25_sk(s)->lci) == lci &&
 			    x25_sk(s)->neighbour == nb) {
 				in_use = true;
 				break;
 			}
 		}
 		if (!in_use) {
-			x25_sk(owner)->lci = lci;
+			WRITE_ONCE(x25_sk(owner)->lci, lci);
 			break;
 		}
 		lci++;
 	}
-	write_unlock_bh(&x25_list_lock);
+	spin_unlock_bh(&x25_list_lock);
 	return (lci < 4096) ? lci : 0;
 }
 
@@ -1660,20 +1661,20 @@ static int compat_x25_subscr_ioctl(unsigned int cmd,
 	dev_put(dev);
 
 	if (cmd == SIOCX25GSUBSCRIP) {
-		read_lock_bh(&x25_neigh_list_lock);
+		spin_lock_bh(&x25_neigh_list_lock);
 		x25_subscr.extended = nb->extended;
 		x25_subscr.global_facil_mask = nb->global_facil_mask;
-		read_unlock_bh(&x25_neigh_list_lock);
+		spin_unlock_bh(&x25_neigh_list_lock);
 		rc = copy_to_user(x25_subscr32, &x25_subscr,
 				sizeof(*x25_subscr32)) ? -EFAULT : 0;
 	} else {
 		rc = -EINVAL;
 		if (x25_subscr.extended == 0 || x25_subscr.extended == 1) {
 			rc = 0;
-			write_lock_bh(&x25_neigh_list_lock);
+			spin_lock_bh(&x25_neigh_list_lock);
 			nb->extended = x25_subscr.extended;
 			nb->global_facil_mask = x25_subscr.global_facil_mask;
-			write_unlock_bh(&x25_neigh_list_lock);
+			spin_unlock_bh(&x25_neigh_list_lock);
 		}
 	}
 	x25_neigh_put(nb);
@@ -1782,11 +1783,11 @@ void x25_kill_by_neigh(struct x25_neigh *nb)
 	struct sock *s;
 
 restart:
-	write_lock_bh(&x25_list_lock);
-	sk_for_each(s, &x25_list) {
+	rcu_read_lock();
+	sk_for_each_rcu(s, &x25_list) {
 		if (READ_ONCE(x25_sk(s)->neighbour) == nb) {
 			sock_hold(s);
-			write_unlock_bh(&x25_list_lock);
+			rcu_read_unlock();
 			lock_sock(s);
 			if (x25_sk(s)->neighbour == nb)
 				x25_disconnect(s, ENETUNREACH, 0, 0);
@@ -1795,7 +1796,7 @@ restart:
 			goto restart;
 		}
 	}
-	write_unlock_bh(&x25_list_lock);
+	rcu_read_unlock();
 
 	/* Remove any related forwards */
 	x25_clear_forward_by_dev(nb->dev);

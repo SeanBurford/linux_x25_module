@@ -6,7 +6,7 @@
  *	randomly fail to work with new releases, misbehave and/or generally
  *	screw up. It might even work.
  *
- *	This code REQUIRES 2.1.15 or higher
+ *	This code REQUIRES 4.0 or higher (uses RCU-based list locking)
  *
  *	History
  *	X.25 001	Jonathan Naylor	Started coding.
@@ -18,7 +18,7 @@
 #include <net/x25.h>
 
 LIST_HEAD(x25_route_list);
-DEFINE_RWLOCK(x25_route_list_lock);
+DEFINE_SPINLOCK(x25_route_list_lock);
 
 /*
  *	Add a new route.
@@ -29,9 +29,10 @@ static int x25_add_route(struct x25_address *address, unsigned int sigdigits,
 	struct x25_route *rt;
 	int rc = -EINVAL;
 
-	write_lock_bh(&x25_route_list_lock);
+	spin_lock_bh(&x25_route_list_lock);
 
-	list_for_each_entry(rt, &x25_route_list, node) {
+	list_for_each_entry_rcu(rt, &x25_route_list, node,
+				lockdep_is_held(&x25_route_list_lock)) {
 		if (!memcmp(&rt->address, address, sigdigits) &&
 		    rt->sigdigits == sigdigits)
 			goto out;
@@ -49,10 +50,10 @@ static int x25_add_route(struct x25_address *address, unsigned int sigdigits,
 	rt->dev       = dev;
 	refcount_set(&rt->refcnt, 1);
 
-	list_add(&rt->node, &x25_route_list);
+	list_add_rcu(&rt->node, &x25_route_list);
 	rc = 0;
 out:
-	write_unlock_bh(&x25_route_list_lock);
+	spin_unlock_bh(&x25_route_list_lock);
 	return rc;
 }
 
@@ -66,7 +67,7 @@ out:
 static void __x25_remove_route(struct x25_route *rt)
 {
 	if (rt->node.next) {
-		list_del(&rt->node);
+		list_del_rcu(&rt->node);
 		x25_route_put(rt);
 	}
 }
@@ -77,9 +78,10 @@ static int x25_del_route(struct x25_address *address, unsigned int sigdigits,
 	struct x25_route *rt;
 	int rc = -EINVAL;
 
-	write_lock_bh(&x25_route_list_lock);
+	spin_lock_bh(&x25_route_list_lock);
 
-	list_for_each_entry(rt, &x25_route_list, node) {
+	list_for_each_entry_rcu(rt, &x25_route_list, node,
+				lockdep_is_held(&x25_route_list_lock)) {
 		if (!memcmp(&rt->address, address, sigdigits) &&
 		    rt->sigdigits == sigdigits && rt->dev == dev) {
 			__x25_remove_route(rt);
@@ -88,7 +90,7 @@ static int x25_del_route(struct x25_address *address, unsigned int sigdigits,
 		}
 	}
 
-	write_unlock_bh(&x25_route_list_lock);
+	spin_unlock_bh(&x25_route_list_lock);
 	return rc;
 }
 
@@ -100,7 +102,7 @@ void x25_route_device_down(struct net_device *dev)
 	struct x25_route *rt;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_route_list_lock);
+	spin_lock_bh(&x25_route_list_lock);
 
 	list_for_each_safe(entry, tmp, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
@@ -108,7 +110,7 @@ void x25_route_device_down(struct net_device *dev)
 		if (rt->dev == dev)
 			__x25_remove_route(rt);
 	}
-	write_unlock_bh(&x25_route_list_lock);
+	spin_unlock_bh(&x25_route_list_lock);
 }
 
 /*
@@ -136,9 +138,9 @@ struct x25_route *x25_get_route(struct x25_address *addr)
 {
 	struct x25_route *rt, *use = NULL;
 
-	read_lock_bh(&x25_route_list_lock);
+	rcu_read_lock();
 
-	list_for_each_entry(rt, &x25_route_list, node) {
+	list_for_each_entry_rcu(rt, &x25_route_list, node) {
 		if (!memcmp(&rt->address, addr, rt->sigdigits)) {
 			if (!use)
 				use = rt;
@@ -150,7 +152,7 @@ struct x25_route *x25_get_route(struct x25_address *addr)
 	if (use)
 		x25_route_hold(use);
 
-	read_unlock_bh(&x25_route_list_lock);
+	rcu_read_unlock();
 	return use;
 }
 
@@ -195,10 +197,10 @@ void __exit x25_route_free(void)
 	struct x25_route *rt;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_route_list_lock);
+	spin_lock_bh(&x25_route_list_lock);
 	list_for_each_safe(entry, tmp, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
 		__x25_remove_route(rt);
 	}
-	write_unlock_bh(&x25_route_list_lock);
+	spin_unlock_bh(&x25_route_list_lock);
 }

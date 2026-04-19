@@ -1,1 +1,11 @@
-.sw?
+# Editor files
+*.sw?
+
+# Build artefacts
+*.cmd
+*.o
+Module.symvers
+modules.order
+x25.ko
+x25.mod
+x25.mod.c

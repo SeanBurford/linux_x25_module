@@ -6,7 +6,7 @@
  *	randomly fail to work with new releases, misbehave and/or generally
  *	screw up. It might even work.
  *
- *	This code REQUIRES 2.4 with seq_file support
+ *	This code REQUIRES 4.0 or higher (uses RCU-based list locking)
  *
  *	History
  *	2002/10/06	Arnaldo Carvalho de Melo  seq_file support
@@ -23,21 +23,21 @@
 #ifdef CONFIG_PROC_FS
 
 static void *x25_seq_route_start(struct seq_file *seq, loff_t *pos)
-	__acquires(x25_route_list_lock)
+	__acquires(RCU)
 {
-	read_lock_bh(&x25_route_list_lock);
-	return seq_list_start_head(&x25_route_list, *pos);
+	rcu_read_lock();
+	return seq_list_start_head_rcu(&x25_route_list, *pos);
 }
 
 static void *x25_seq_route_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	return seq_list_next(v, &x25_route_list, pos);
+	return seq_list_next_rcu(v, &x25_route_list, pos);
 }
 
 static void x25_seq_route_stop(struct seq_file *seq, void *v)
-	__releases(x25_route_list_lock)
+	__releases(RCU)
 {
-	read_unlock_bh(&x25_route_list_lock);
+	rcu_read_unlock();
 }
 
 static int x25_seq_route_show(struct seq_file *seq, void *v)
@@ -58,21 +58,21 @@ out:
 }
 
 static void *x25_seq_socket_start(struct seq_file *seq, loff_t *pos)
-	__acquires(x25_list_lock)
+	__acquires(RCU)
 {
-	read_lock_bh(&x25_list_lock);
-	return seq_hlist_start_head(&x25_list, *pos);
+	rcu_read_lock();
+	return seq_hlist_start_head_rcu(&x25_list, *pos);
 }
 
 static void *x25_seq_socket_next(struct seq_file *seq, void *v, loff_t *pos)
 {
-	return seq_hlist_next(v, &x25_list, pos);
+	return seq_hlist_next_rcu(v, &x25_list, pos);
 }
 
 static void x25_seq_socket_stop(struct seq_file *seq, void *v)
-	__releases(x25_list_lock)
+	__releases(RCU)
 {
-	read_unlock_bh(&x25_list_lock);
+	rcu_read_unlock();
 }
 
 static int x25_seq_socket_show(struct seq_file *seq, void *v)
@@ -112,7 +112,7 @@ out:
 static void *x25_seq_forward_start(struct seq_file *seq, loff_t *pos)
 	__acquires(x25_forward_list_lock)
 {
-	read_lock_bh(&x25_forward_list_lock);
+	spin_lock_bh(&x25_forward_list_lock);
 	return seq_list_start_head(&x25_forward_list, *pos);
 }
 
@@ -124,7 +124,7 @@ static void *x25_seq_forward_next(struct seq_file *seq, void *v, loff_t *pos)
 static void x25_seq_forward_stop(struct seq_file *seq, void *v)
 	__releases(x25_forward_list_lock)
 {
-	read_unlock_bh(&x25_forward_list_lock);
+	spin_unlock_bh(&x25_forward_list_lock);
 }
 
 static int x25_seq_forward_show(struct seq_file *seq, void *v)

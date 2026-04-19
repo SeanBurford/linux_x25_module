@@ -6,7 +6,7 @@
  *	randomly fail to work with new releases, misbehave and/or generally
  *	screw up. It might even work.
  *
- *	This code REQUIRES 2.1.15 or higher
+ *	This code REQUIRES 4.0 or higher (uses RCU-based list locking)
  *
  *	History
  *	X.25 001	Jonathan Naylor	  Started coding.
@@ -29,7 +29,7 @@
 #include <net/x25.h>
 
 LIST_HEAD(x25_neigh_list);
-DEFINE_RWLOCK(x25_neigh_list_lock);
+DEFINE_SPINLOCK(x25_neigh_list_lock);
 
 static void x25_t20timer_expiry(struct timer_list *);
 
@@ -284,9 +284,9 @@ void x25_link_device_up(struct net_device *dev)
 	nb->t20      = sysctl_x25_restart_request_timeout;
 	refcount_set(&nb->refcnt, 1);
 
-	write_lock_bh(&x25_neigh_list_lock);
-	list_add(&nb->node, &x25_neigh_list);
-	write_unlock_bh(&x25_neigh_list_lock);
+	spin_lock_bh(&x25_neigh_list_lock);
+	list_add_rcu(&nb->node, &x25_neigh_list);
+	spin_unlock_bh(&x25_neigh_list_lock);
 }
 
 /**
@@ -299,7 +299,7 @@ void x25_link_device_up(struct net_device *dev)
 static void __x25_remove_neigh(struct x25_neigh *nb)
 {
 	if (nb->node.next) {
-		list_del(&nb->node);
+		list_del_rcu(&nb->node);
 		x25_neigh_put(nb);
 	}
 }
@@ -312,7 +312,7 @@ void x25_link_device_down(struct net_device *dev)
 	struct x25_neigh *nb;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_neigh_list_lock);
+	spin_lock_bh(&x25_neigh_list_lock);
 
 	list_for_each_safe(entry, tmp, &x25_neigh_list) {
 		nb = list_entry(entry, struct x25_neigh, node);
@@ -323,7 +323,7 @@ void x25_link_device_down(struct net_device *dev)
 		}
 	}
 
-	write_unlock_bh(&x25_neigh_list_lock);
+	spin_unlock_bh(&x25_neigh_list_lock);
 }
 
 /*
@@ -333,8 +333,8 @@ struct x25_neigh *x25_get_neigh(struct net_device *dev)
 {
 	struct x25_neigh *nb, *use = NULL;
 
-	read_lock_bh(&x25_neigh_list_lock);
-	list_for_each_entry(nb, &x25_neigh_list, node) {
+	rcu_read_lock();
+	list_for_each_entry_rcu(nb, &x25_neigh_list, node) {
 		if (nb->dev == dev) {
 			use = nb;
 			break;
@@ -343,7 +343,7 @@ struct x25_neigh *x25_get_neigh(struct net_device *dev)
 
 	if (use)
 		x25_neigh_hold(use);
-	read_unlock_bh(&x25_neigh_list_lock);
+	rcu_read_unlock();
 	return use;
 }
 
@@ -374,20 +374,20 @@ int x25_subscr_ioctl(unsigned int cmd, void __user *arg)
 	dev_put(dev);
 
 	if (cmd == SIOCX25GSUBSCRIP) {
-		read_lock_bh(&x25_neigh_list_lock);
+		spin_lock_bh(&x25_neigh_list_lock);
 		x25_subscr.extended	     = nb->extended;
 		x25_subscr.global_facil_mask = nb->global_facil_mask;
-		read_unlock_bh(&x25_neigh_list_lock);
+		spin_unlock_bh(&x25_neigh_list_lock);
 		rc = copy_to_user(arg, &x25_subscr,
 				  sizeof(x25_subscr)) ? -EFAULT : 0;
 	} else {
 		rc = -EINVAL;
 		if (!(x25_subscr.extended && x25_subscr.extended != 1)) {
 			rc = 0;
-			write_lock_bh(&x25_neigh_list_lock);
+			spin_lock_bh(&x25_neigh_list_lock);
 			nb->extended	     = x25_subscr.extended;
 			nb->global_facil_mask = x25_subscr.global_facil_mask;
-			write_unlock_bh(&x25_neigh_list_lock);
+			spin_unlock_bh(&x25_neigh_list_lock);
 		}
 	}
 	x25_neigh_put(nb);
@@ -407,7 +407,7 @@ void __exit x25_link_free(void)
 	struct x25_neigh *nb;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_neigh_list_lock);
+	spin_lock_bh(&x25_neigh_list_lock);
 
 	list_for_each_safe(entry, tmp, &x25_neigh_list) {
 		struct net_device *dev;
@@ -417,5 +417,5 @@ void __exit x25_link_free(void)
 		__x25_remove_neigh(nb);
 		dev_put(dev);
 	}
-	write_unlock_bh(&x25_neigh_list_lock);
+	spin_unlock_bh(&x25_neigh_list_lock);
 }

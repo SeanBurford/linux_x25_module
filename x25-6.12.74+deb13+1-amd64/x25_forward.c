@@ -12,7 +12,7 @@
 #include <net/x25.h>
 
 LIST_HEAD(x25_forward_list);
-DEFINE_RWLOCK(x25_forward_list_lock);
+DEFINE_SPINLOCK(x25_forward_list_lock);
 
 int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 			struct sk_buff *skb, int lci)
@@ -53,7 +53,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 	new_frwd->dev1 = rt->dev;
 	new_frwd->dev2 = from->dev;
 
-	write_lock_bh(&x25_forward_list_lock);
+	spin_lock_bh(&x25_forward_list_lock);
 	list_for_each_entry(x25_frwd, &x25_forward_list, node) {
 		if (x25_frwd->lci == lci) {
 			pr_warn("call request for lci which is already registered!, transmitting but not registering new pair\n");
@@ -63,7 +63,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 	}
 	if (!same_lci)
 		list_add(&new_frwd->node, &x25_forward_list);
-	write_unlock_bh(&x25_forward_list_lock);
+	spin_unlock_bh(&x25_forward_list_lock);
 
 	if (same_lci)
 		kfree(new_frwd);
@@ -95,7 +95,7 @@ int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
 	struct sk_buff *skbn;
 	int rc = 0;
 
-	read_lock_bh(&x25_forward_list_lock);
+	spin_lock_bh(&x25_forward_list_lock);
 	list_for_each_entry(frwd, &x25_forward_list, node) {
 		if (frwd->lci == lci) {
 			/* The call is established, either side can send */
@@ -107,7 +107,7 @@ int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
 			break;
 		}
 	}
-	read_unlock_bh(&x25_forward_list_lock);
+	spin_unlock_bh(&x25_forward_list_lock);
 
 	if ( (nb = x25_get_neigh(peer)) == NULL)
 		goto out;
@@ -129,7 +129,7 @@ void x25_clear_forward_by_lci(unsigned int lci)
 {
 	struct x25_forward *fwd, *tmp;
 
-	write_lock_bh(&x25_forward_list_lock);
+	spin_lock_bh(&x25_forward_list_lock);
 
 	list_for_each_entry_safe(fwd, tmp, &x25_forward_list, node) {
 		if (fwd->lci == lci) {
@@ -137,7 +137,7 @@ void x25_clear_forward_by_lci(unsigned int lci)
 			kfree(fwd);
 		}
 	}
-	write_unlock_bh(&x25_forward_list_lock);
+	spin_unlock_bh(&x25_forward_list_lock);
 }
 
 
@@ -145,7 +145,7 @@ void x25_clear_forward_by_dev(struct net_device *dev)
 {
 	struct x25_forward *fwd, *tmp;
 
-	write_lock_bh(&x25_forward_list_lock);
+	spin_lock_bh(&x25_forward_list_lock);
 
 	list_for_each_entry_safe(fwd, tmp, &x25_forward_list, node) {
 		if ((fwd->dev1 == dev) || (fwd->dev2 == dev)){
@@ -153,5 +153,5 @@ void x25_clear_forward_by_dev(struct net_device *dev)
 			kfree(fwd);
 		}
 	}
-	write_unlock_bh(&x25_forward_list_lock);
+	spin_unlock_bh(&x25_forward_list_lock);
 }

@@ -3,6 +3,8 @@
 # Makefile for the Linux X.25 Packet layer.
 #
 
+EXTRA_CFLAGS += -include $(src)/include/net/x25.h
+
 CONFIG_X25 = m
 obj-$(CONFIG_X25) += x25.o
 
