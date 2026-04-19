@@ -332,21 +332,31 @@ struct sock *x25_find_socket(unsigned int lci, struct x25_neigh *nb)
 /*
  *	Find a unique LCI for a given device.
  */
-static unsigned int x25_new_lci(struct x25_neigh *nb)
+static unsigned int x25_new_lci(struct sock *owner, struct x25_neigh *nb)
 {
 	unsigned int lci = 1;
-	struct sock *sk;
+	struct sock *s;
 
-	while ((sk = x25_find_socket(lci, nb)) != NULL) {
-		sock_put(sk);
-		if (++lci == 4096) {
-			lci = 0;
+	write_lock_bh(&x25_list_lock);
+	while (lci < 4096) {
+		bool in_use = false;
+
+		sk_for_each(s, &x25_list) {
+			if (s != owner &&
+			    x25_sk(s)->lci == lci &&
+			    x25_sk(s)->neighbour == nb) {
+				in_use = true;
+				break;
+			}
+		}
+		if (!in_use) {
+			x25_sk(owner)->lci = lci;
 			break;
 		}
-		cond_resched();
+		lci++;
 	}
-
-	return lci;
+	write_unlock_bh(&x25_list_lock);
+	return (lci < 4096) ? lci : 0;
 }
 
 /*
@@ -792,8 +802,7 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 
 	x25_limit_facilities(&x25->facilities, x25->neighbour);
 
-	x25->lci = x25_new_lci(x25->neighbour);
-	if (!x25->lci)
+	if (!x25_new_lci(sk, x25->neighbour))
 		goto out_put_neigh;
 
 	rc = -EINVAL;
