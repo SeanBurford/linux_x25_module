@@ -10,4 +10,6 @@ Copied from `/net/x25/` after fetching the Linux kernel source using Debian `apt
 *  Fix SYNC-002 — TOCTOU in `x25_forward_call`: duplicate-check and insert are not atomic.
 *  Fix SYNC-003 — `x25_kill_by_neigh` drops the list write lock mid-iteration, risking stale next-pointer.
 *  Fix SYNC-004 — TOCTOU in `x25_new_lci`: LCI found-free then assigned without holding an exclusive lock.
-*  Fix SYNC-005 — x25_getname reads socket address fields without any lock.
+*  Fix SYNC-005 — `x25_getname` reads socket address fields without any lock.
+*  Fix SYNC-006 — Eliminate the dual role of `x25_list_lock` as a guard for `x25->neighbour`.
+

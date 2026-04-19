@@ -838,10 +838,8 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 	rc = 0;
 out_put_neigh:
 	if (rc && x25->neighbour) {
-		write_lock_bh(&x25_list_lock);
 		x25_neigh_put(x25->neighbour);
 		x25->neighbour = NULL;
-		write_unlock_bh(&x25_list_lock);
 		x25->state = X25_STATE_0;
 	}
 out_put_route:
@@ -1786,11 +1784,12 @@ void x25_kill_by_neigh(struct x25_neigh *nb)
 restart:
 	write_lock_bh(&x25_list_lock);
 	sk_for_each(s, &x25_list) {
-		if (x25_sk(s)->neighbour == nb) {
+		if (READ_ONCE(x25_sk(s)->neighbour) == nb) {
 			sock_hold(s);
 			write_unlock_bh(&x25_list_lock);
 			lock_sock(s);
-			x25_disconnect(s, ENETUNREACH, 0, 0);
+			if (x25_sk(s)->neighbour == nb)
+				x25_disconnect(s, ENETUNREACH, 0, 0);
 			release_sock(s);
 			sock_put(s);
 			goto restart;

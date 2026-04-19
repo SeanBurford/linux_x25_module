@@ -358,10 +358,8 @@ void x25_disconnect(struct sock *sk, int reason, unsigned char cause,
 		sock_set_flag(sk, SOCK_DEAD);
 	}
 	if (x25->neighbour) {
-		write_lock_bh(&x25_list_lock);
 		x25_neigh_put(x25->neighbour);
 		x25->neighbour = NULL;
-		write_unlock_bh(&x25_list_lock);
 	}
 }
 
