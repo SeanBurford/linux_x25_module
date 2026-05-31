@@ -3,9 +3,9 @@ modver=6.12.74+deb13+1-amd64
 built_modules=x25.ko
 
 build() {
-    awk '{gsub(/del_timer/, "timer_delete");gsub(/from_timer/, "timer_container_of")}1' af_x25.c > af_x25.c.new
+    awk '{gsub(/del_timer/, "timer_delete");gsub(/from_timer/, "timer_container_of");gsub(/x25_destroy_socket_timer_container_of/, "x25_destroy_socket_from_timer")}1' af_x25.c > af_x25.c.new
     awk '{gsub(/del_timer/, "timer_delete");gsub(/from_timer/, "timer_container_of")}1' x25_link.c > x25_link.c.new
-    awk '{gsub(/del_timer/, "timer_delete");gsub(/from_timer/, "timer_container_of")}1' x25_timer.c > x25_timer.c.new
+    awk '{gsub(/del_timer/, "timer_delete");gsub(/from_timer/, "timer_container_of");gsub(/x25_destroy_socket_timer_container_of/, "x25_destroy_socket_from_timer")}1' x25_timer.c > x25_timer.c.new
     mv af_x25.c.new af_x25.c
     mv x25_link.c.new x25_link.c
     mv x25_timer.c.new x25_timer.c
