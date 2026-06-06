@@ -334,10 +334,10 @@ int x25_negotiate_facilities(struct sk_buff *skb, struct sock *sk,
  *      currently attached x25 link.
  */
 void x25_limit_facilities(struct x25_facilities *facilities,
-			  struct x25_neigh *nb)
+			  unsigned int extended)
 {
 
-	if (!nb->extended) {
+	if (!extended) {
 		if (facilities->winsize_in  > 7) {
 			pr_debug("incoming winsize limited to 7\n");
 			facilities->winsize_in = 7;

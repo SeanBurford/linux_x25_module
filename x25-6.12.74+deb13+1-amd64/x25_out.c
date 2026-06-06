@@ -51,7 +51,7 @@ int x25_output(struct sock *sk, struct sk_buff *skb)
 	int err, frontlen, len;
 	int sent=0, noblock = X25_SKB_CB(skb)->flags & MSG_DONTWAIT;
 	struct x25_sock *x25 = x25_sk(sk);
-	int header_len = x25->neighbour->extended ? X25_EXT_MIN_LEN :
+	int header_len = x25->extended ? X25_EXT_MIN_LEN :
 						    X25_STD_MIN_LEN;
 	int max_len = x25_pacsize_to_bytes(x25->facilities.pacsize_out);
 
@@ -91,7 +91,7 @@ int x25_output(struct sock *sk, struct sk_buff *skb)
 			skb_copy_to_linear_data(skbn, header, header_len);
 
 			if (skb->len > 0) {
-				if (x25->neighbour->extended)
+				if (x25->extended)
 					skbn->data[3] |= X25_EXT_M_BIT;
 				else
 					skbn->data[2] |= X25_STD_M_BIT;
@@ -120,7 +120,7 @@ static void x25_send_iframe(struct sock *sk, struct sk_buff *skb)
 	if (!skb)
 		return;
 
-	if (x25->neighbour->extended) {
+	if (x25->extended) {
 		skb->data[2]  = (x25->vs << 1) & 0xFE;
 		skb->data[3] &= X25_EXT_M_BIT;
 		skb->data[3] |= (x25->vr << 1) & 0xFE;
@@ -159,7 +159,7 @@ void x25_kick(struct sock *sk)
 	if (!skb_peek(&sk->sk_write_queue))
 		return;
 
-	modulus = x25->neighbour->extended ? X25_EMODULUS : X25_SMODULUS;
+	modulus = x25->extended ? X25_EMODULUS : X25_SMODULUS;
 
 	start   = skb_peek(&x25->ack_queue) ? x25->vs : x25->va;
 	end     = (x25->va + x25->facilities.winsize_out) % modulus;

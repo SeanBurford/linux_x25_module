@@ -800,7 +800,8 @@ static int x25_connect(struct socket *sock, struct sockaddr *uaddr,
 	if (!x25->neighbour)
 		goto out_put_route;
 
-	x25_limit_facilities(&x25->facilities, x25->neighbour);
+	x25->extended = x25->neighbour->extended;
+	x25_limit_facilities(&x25->facilities, x25->extended);
 
 	if (!x25_new_lci(sk, x25->neighbour))
 		goto out_put_neigh;
@@ -956,6 +957,10 @@ int x25_rx_call_request(struct sk_buff *skb, struct x25_neigh *nb,
 	struct x25_facilities facilities;
 	struct x25_dte_facilities dte_facilities;
 	int len, addr_len, rc;
+	unsigned int per_call_extended;
+
+	/* Derive modulo from GFI before stripping the header. */
+	per_call_extended = ((skb->data[0] & X25_GFI_SEQ_MASK) == X25_GFI_EXTSEQ) ? 1 : 0;
 
 	/*
 	 *	Remove the LCI and frame type.
@@ -1041,7 +1046,7 @@ int x25_rx_call_request(struct sk_buff *skb, struct x25_neigh *nb,
 	 * on certain facilities
 	 */
 
-	x25_limit_facilities(&facilities, nb);
+	x25_limit_facilities(&facilities, per_call_extended);
 
 	/*
 	 *	Try to create a new socket.
@@ -1060,6 +1065,7 @@ int x25_rx_call_request(struct sk_buff *skb, struct x25_neigh *nb,
 
 	makex25 = x25_sk(make);
 	makex25->lci           = lci;
+	makex25->extended      = per_call_extended;
 	makex25->dest_addr     = dest_addr;
 	makex25->source_addr   = source_addr;
 	x25_neigh_hold(nb);
@@ -1223,7 +1229,7 @@ static int x25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 	net_dbg_ratelimited("x25_sendmsg: Building X.25 Header.\n");
 
 	if (msg->msg_flags & MSG_OOB) {
-		if (x25->neighbour->extended) {
+		if (x25->extended) {
 			asmptr    = skb_push(skb, X25_STD_MIN_LEN);
 			*asmptr++ = ((x25->lci >> 8) & 0x0F) | X25_GFI_EXTSEQ;
 			*asmptr++ = (x25->lci >> 0) & 0xFF;
@@ -1235,7 +1241,7 @@ static int x25_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 			*asmptr++ = X25_INTERRUPT;
 		}
 	} else {
-		if (x25->neighbour->extended) {
+		if (x25->extended) {
 			/* Build an Extended X.25 header */
 			asmptr    = skb_push(skb, X25_EXT_MIN_LEN);
 			*asmptr++ = ((x25->lci >> 8) & 0x0F) | X25_GFI_EXTSEQ;
@@ -1300,7 +1306,7 @@ static int x25_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	if (x25->neighbour == NULL)
 		goto out;
 
-	header_len = x25->neighbour->extended ?
+	header_len = x25->extended ?
 		X25_EXT_MIN_LEN : X25_STD_MIN_LEN;
 
 	/*

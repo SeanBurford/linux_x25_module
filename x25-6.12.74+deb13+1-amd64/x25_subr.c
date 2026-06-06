@@ -53,7 +53,7 @@ void x25_frames_acked(struct sock *sk, unsigned short nr)
 {
 	struct sk_buff *skb;
 	struct x25_sock *x25 = x25_sk(sk);
-	int modulus = x25->neighbour->extended ? X25_EMODULUS : X25_SMODULUS;
+	int modulus = x25->extended ? X25_EMODULUS : X25_SMODULUS;
 
 	/*
 	 * Remove all the ack-ed frames from the ack queue.
@@ -92,7 +92,7 @@ int x25_validate_nr(struct sock *sk, unsigned short nr)
 {
 	struct x25_sock *x25 = x25_sk(sk);
 	unsigned short vc = x25->va;
-	int modulus = x25->neighbour->extended ? X25_EMODULUS : X25_SMODULUS;
+	int modulus = x25->extended ? X25_EMODULUS : X25_SMODULUS;
 
 	while (vc != x25->vs) {
 		if (nr == vc)
@@ -166,7 +166,7 @@ void x25_write_internal(struct sock *sk, int frametype)
 	lci1 = (x25->lci >> 8) & 0x0F;
 	lci2 = (x25->lci >> 0) & 0xFF;
 
-	if (x25->neighbour->extended) {
+	if (x25->extended) {
 		*dptr++ = lci1 | X25_GFI_EXTSEQ;
 		*dptr++ = lci2;
 	} else {
@@ -233,7 +233,7 @@ void x25_write_internal(struct sock *sk, int frametype)
 		case X25_RR:
 		case X25_RNR:
 		case X25_REJ:
-			if (x25->neighbour->extended) {
+			if (x25->extended) {
 				dptr     = skb_put(skb, 2);
 				*dptr++  = frametype;
 				*dptr++  = (x25->vr << 1) & 0xFE;
@@ -287,7 +287,7 @@ int x25_decode(struct sock *sk, struct sk_buff *skb, int *ns, int *nr, int *q,
 		return frame[2];
 	}
 
-	if (x25->neighbour->extended) {
+	if (x25->extended) {
 		if (frame[2] == X25_RR  ||
 		    frame[2] == X25_RNR ||
 		    frame[2] == X25_REJ) {
@@ -307,7 +307,7 @@ int x25_decode(struct sock *sk, struct sk_buff *skb, int *ns, int *nr, int *q,
 		}
 	}
 
-	if (x25->neighbour->extended) {
+	if (x25->extended) {
 		if ((frame[2] & 0x01) == X25_DATA) {
 			if (!pskb_may_pull(skb, X25_EXT_MIN_LEN))
 				return X25_ILLEGAL;

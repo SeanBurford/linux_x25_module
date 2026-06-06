@@ -63,7 +63,7 @@ static int x25_queue_rx_frame(struct sock *sk, struct sk_buff *skb, int more)
 
 		while ((skbo =
 			skb_dequeue(&x25->fragment_queue)) != NULL) {
-			skb_pull(skbo, (x25->neighbour->extended) ?
+			skb_pull(skbo, (x25->extended) ?
 					X25_EXT_MIN_LEN : X25_STD_MIN_LEN);
 			skb_copy_from_linear_data(skbo,
 						  skb_put(skbn, skbo->len),
@@ -214,7 +214,7 @@ static int x25_state3_machine(struct sock *sk, struct sk_buff *skb, int frametyp
 	int modulus;
 	struct x25_sock *x25 = x25_sk(sk);
 
-	modulus = (x25->neighbour->extended) ? X25_EMODULUS : X25_SMODULUS;
+	modulus = (x25->extended) ? X25_EMODULUS : X25_SMODULUS;
 
 	switch (frametype) {
 
